@@ -1,0 +1,12 @@
+name: ds_optim
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - matplotlib
+  - pandas
+  - pip
+  - pip:
+      - cvxpy
+      - mosek
