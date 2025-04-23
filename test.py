@@ -153,7 +153,8 @@ def proximal_gradient_descent_backtracking(
 
 if __name__ == "__main__":
 
-    subset_size = int(sys.argv[1]) if len(sys.argv) > 1 else 10
+    subset_size = int(sys.argv[1]) if len(sys.argv) > 1 else 492
+    print(f"Subset size: {subset_size}")
     # Test proximal_gradient_descent_backtracking
     t_init = 0.1  # Initial step size
     alpha = 0.1  # Armijo condition parameter
