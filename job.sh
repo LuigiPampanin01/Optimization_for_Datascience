@@ -11,4 +11,4 @@
 source /zhome/b0/3/214044/miniconda3/etc/profile.d/conda.sh
 conda activate ds_optim
 
-time python test.py
+time python test_new.py
