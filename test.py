@@ -50,7 +50,7 @@ def compute_stopping_criterion(X, S, g_func, h_func, gamma, compute_U):
     
     return delta
 
-def proximal_gradient_descend(X, h_func_cp, h_func, t, grad_x, arg_prox, S, gamma, g_func, compute_U, epsilon=1e-2): # TODO : i'm not fucking sure this work, can you guys check please 
+def proximal_gradient_descend(X, h_func_cp, h_func, t, grad_x, arg_prox, S, gamma, g_func, compute_U, epsilon=1e-2):  
 
     while True:
         X_new = prox_h(X, h_func_cp, t, grad_x, arg_prox, S, gamma)
@@ -131,7 +131,7 @@ def proximal_gradient_descent_backtracking(
 
     while True:
         t = t_init
-        for _ in range(max_iter):
+        while True:
             X_new = prox_h(X, h_func_cp, t, grad_x, arg_prox, S, gamma)
 
             # Armijo condition
@@ -177,3 +177,12 @@ if __name__ == "__main__":
 
     print("Result of Proximal Gradient Descent with Backtracking:")
     print(result_pgb)
+
+    # Plot the result_pgb with diagonal set to -inf
+    result_pgb_plot = result_pgb.copy()
+    np.fill_diagonal(result_pgb_plot, -np.inf)
+
+    plt.imshow(result_pgb_plot, cmap='viridis', interpolation='none')
+    plt.colorbar()
+    plt.title("Heatmap of result_pgb (diagonal set to -inf)")
+    plt.show()
