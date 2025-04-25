@@ -4,18 +4,6 @@ import matplotlib.pyplot as plt
 import sys
 from tqdm import tqdm 
 
-# def project_dual(U, gamma):
-#     """Project matrix U onto the feasible set of the dual problem"""
-#     U_proj = U.copy()
-#     n = U.shape[0]
-#     for i in range(n):
-#         for j in range(n):
-#             if i == j:
-#                 U_proj[i, j] = 0
-#             else:
-#                 U_proj[i, j] = np.clip(U[i, j], -gamma, gamma)
-#     return U_proj
-
 def project_dual(U, gamma):
     """Project matrix U onto the feasible set of the dual problem using vectorized operations"""
     U_proj = np.clip(U, -gamma, gamma)
@@ -37,7 +25,7 @@ def dual_gradient(U, S):
     except LinAlgError:
         return np.zeros_like(S)
 
-def graphical_lasso_dual(S, gamma, max_iter=20000, epsilon=1e-3, alpha=0.25, beta=0.5, t0=1.0):
+def graphical_lasso_dual(S, gamma, max_iter=20000, epsilon=1e-3, alpha=0.25, beta=0.5, t0=0.1):
     """
     Solves the dual problem of graphical LASSO using projected gradient ascent with backtracking
     """

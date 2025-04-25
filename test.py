@@ -2,15 +2,11 @@ import cvxpy as cp
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
+import tqdm
 
 def grad_x(X, S):
-
     X_inv = np.linalg.inv(X)
     return S - X_inv
-
-def arg_prox(X, t, grad_x, S):
-
-    return X - t * grad_x(X, S)
 
 def h_func_cp(X, gamma):
     offdiag_mask = ~np.eye(X.shape[0], dtype=bool)
@@ -20,127 +16,88 @@ def h_func(X, gamma):
     offdiag_mask = ~np.eye(X.shape[0], dtype=bool)
     return gamma * np.sum(np.abs(np.multiply(offdiag_mask, X)))
 
-def prox_h(X, h_func_cp, t, grad_x, arg_prox, S, gamma):
+def prox_h(X, grad, h_func_cp, t, gamma):
     """
-    Compute prox_{h}(x) = argmin_y h(y) + 0.5 * ||y - x||_2^2
-
-    Parameters:
-    - x (np.ndarray): The point at which to evaluate the proximal operator
-    - h_func_cp (callable): A function that accepts a cvxpy Variable y and returns h(y)
-
-    Returns:
-    - np.ndarray: Result of the proximal operator
+    Compute prox_{h}(x) = argmin_y h(y) + 0.5 * ||y - (X - t*grad)||_2^2
     """
-    x = arg_prox(X, t, grad_x, S)
+    x = X - t * grad
 
     y = cp.Variable(x.shape)
     objective = h_func_cp(y, gamma) + 0.5 * cp.sum_squares(y - x)
     problem = cp.Problem(cp.Minimize(objective))
-    problem.solve()
+    problem.solve(solver=cp.SCS, verbose=False)  # You can pick ECOS too
     return y.value
 
 def g_func(X, S):
-    return np.trace(S @ X) - np.log(np.linalg.det(X))
+    sign, logdet = np.linalg.slogdet(X)
+    if sign <= 0:
+        raise ValueError("Matrix not positive definite")
+    return np.trace(S @ X) - logdet
 
 def compute_stopping_criterion(X, S, g_func, h_func, gamma, compute_U):
-
     n = X.shape[0]
-
-    delta = g_func(X, S) + h_func(X, gamma) - np.log(np.linalg.det(S + compute_U(X, S, gamma))) - n
-    
+    sign, logdet = np.linalg.slogdet(S + compute_U(X, S, gamma))
+    if sign <= 0:
+        raise ValueError("Matrix not positive definite in stopping criterion")
+    delta = g_func(X, S) + h_func(X, gamma) - logdet - n
     return delta
-
-def proximal_gradient_descend(X, h_func_cp, h_func, t, grad_x, arg_prox, S, gamma, g_func, compute_U, epsilon=1e-2):  
-
-    while True:
-        X_new = prox_h(X, h_func_cp, t, grad_x, arg_prox, S, gamma)
-        delta = compute_stopping_criterion(X_new, S, g_func, h_func, gamma, compute_U)
-
-        X = X_new
-
-        if delta <= epsilon:
-            break 
-    
-    return X
 
 def compute_U(X, S, gamma):
     """
     Compute U where:
     U_ij = max(-gamma, min(gamma, [X_inv - S]_ij)) for i ≠ j
            0 for i == j
-    
-    Parameters:
-    - X (np.ndarray): Square positive definite matrix
-    - S (np.ndarray): Symmetric matrix of same shape as X
-    - gamma (float): Threshold parameter
-    
-    Returns:
-    - np.ndarray: Matrix U
     """
     X_inv = np.linalg.inv(X)
     diff = X_inv - S
 
-    # Apply soft thresholding only to off-diagonal elements
-    U = np.zeros_like(diff)
-    # Copy and clip everything
-    U[:] = np.clip(diff, -gamma, gamma)
-
-    # Set diagonal to 0
+    U = np.clip(diff, -gamma, gamma)
     np.fill_diagonal(U, 0)
-    # for i in range(diff.shape[0]):
-    #     for j in range(diff.shape[1]):
-    #         if i != j:
-    #             U[i, j] = np.clip(diff[i, j], -gamma, gamma)
-    #         else:
-    #             U[i, j] = 0  # optional, since we initialized with zeros
-
     return U
 
-def backtracking_line_search(phi, phi_derivative_at_0, t_init, alpha1=0.1, beta=0.7):
-    """
-    Perform backtracking line search to find step size t.
-
-    Parameters:
-        phi (function): A continuously differentiable function φ: R → R.
-        phi_derivative_at_0 (float): The derivative φ'(0).
-        t_init (float): Initial step size (t >= 0).
-        alpha1 (float): Parameter in (0, 0.5], default 0.1.
-        beta (float): Parameter in (0, 1), default 0.7.
-
-    Returns:
-        float: Step size t such that φ(t) ≤ φ(0) + α1 * t * φ'(0)
-    """
-    t = t_init
-    phi_0 = phi(0)
-
-    while phi(t) > phi_0 + alpha1 * t * phi_derivative_at_0:
-        t *= beta
-
-    return t
+def proximal_gradient_descend(X, h_func_cp, h_func, t, S, gamma, g_func, compute_U, epsilon=1e-2):
+    while True:
+        grad = grad_x(X, S)
+        X_new = prox_h(X, grad, h_func_cp, t, gamma)
+        delta = compute_stopping_criterion(X_new, S, g_func, h_func, gamma, compute_U)
+        X = X_new
+        if delta <= epsilon:
+            break
+    return X
 
 def proximal_gradient_descent_backtracking(
-    X, h_func_cp, h_func, t_init, grad_x, arg_prox, S, gamma,
-    g_func, compute_U, epsilon=1e-2, alpha=0.1, beta=0.5, max_iter=1
+    X, h_func_cp, h_func, t_init, S, gamma,
+    g_func, compute_U, epsilon=1e-2, beta=0.5, max_iter=1000
 ):
     """
     Proximal gradient descent with backtracking line search for Graphical Lasso.
     """
 
-    def objective(X_val, S, gamma):
-        return g_func(X_val, S) + h_func(X_val, gamma)
+    def g_only(X_val, S):
+        return g_func(X_val, S)
 
-    while True:
+    for it in tqdm.tqdm(range(max_iter)):
         t = t_init
+        grad = grad_x(X, S)
+
         while True:
-            X_new = prox_h(X, h_func_cp, t, grad_x, arg_prox, S, gamma)
+            X_new = prox_h(X, grad, h_func_cp, t, gamma)
 
-            # Armijo condition
-            lhs = objective(X_new, S, gamma)
+            # Check if X_new is positive definite
+            try:
+                np.linalg.cholesky(X_new)
+                is_pos_def = True
+            except np.linalg.LinAlgError:
+                is_pos_def = False
 
-            rhs = objective(X, S, gamma) + alpha * np.sum(grad_x(X, S) * (X_new - X))  # <∇g(X), X_new - X>
-            if lhs <= rhs:
+            lhs = g_only(X_new, S)
+            diff = X_new - X
+            rhs = g_only(X, S) + np.sum(grad * diff) + (1 / (2 * t)) * np.linalg.norm(diff, "fro")**2
+
+            if is_pos_def and lhs <= rhs:
                 break
-            t *= beta  # backtrack if Armijo not satisfied
+
+            t *= beta  # shrink step size
 
         delta = compute_stopping_criterion(X_new, S, g_func, h_func, gamma, compute_U)
         X = X_new
@@ -150,29 +107,28 @@ def proximal_gradient_descent_backtracking(
 
     return X
 
-
 if __name__ == "__main__":
-
     subset_size = int(sys.argv[1]) if len(sys.argv) > 1 else 492
     print(f"Subset size: {subset_size}")
-    # Test proximal_gradient_descent_backtracking
-    t_init = 0.1  # Initial step size
-    alpha = 0.1  # Armijo condition parameter
+
+    # Parameters
+    t_init = 1  # Initial step size
     beta = 0.5  # Backtracking parameter
     epsilon = 1e-2  # Convergence threshold
     gamma = 0.1  # Regularization parameter
 
     # Load data
     matrix = np.loadtxt('data/sp500.txt')
-    matrix = matrix[:subset_size, :subset_size]  # Use a smaller subset for testing
+    matrix = matrix[:subset_size, :subset_size]  # Use a subset for faster testing
     n = matrix.shape[0]
 
-    # Example usage
-    X_init = prox_h(np.eye(n), h_func_cp, 0.1, grad_x, arg_prox, matrix, 0.1)
+    # Initialization
+    X_init = np.eye(n)
 
+    # Run Proximal Gradient Descent with Backtracking
     result_pgb = proximal_gradient_descent_backtracking(
-        X_init, h_func_cp, h_func, t_init, grad_x, arg_prox, matrix, gamma,
-        g_func, compute_U, epsilon, alpha, beta
+        X_init, h_func_cp, h_func, t_init, matrix, gamma,
+        g_func, compute_U, epsilon, beta
     )
 
     print("Result of Proximal Gradient Descent with Backtracking:")
