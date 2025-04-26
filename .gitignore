@@ -2,3 +2,5 @@
 *.err
 *.png
 *.out
+!sparsity_vs_gamma.png
+!tradeoff_curve.png
